@@ -1,0 +1,16 @@
+# Go 编译产物
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# 调试器/IDE 相关
+.dlv/
+.vscode/
+debug.log
+
+# 日志文件
+*.log
