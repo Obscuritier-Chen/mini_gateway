@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"mini_gateway/internal/lua"
 	"mini_gateway/internal/gateway"
 	"mini_gateway/internal/mock"
 )
@@ -16,7 +17,12 @@ import (
 func main() {
 	go mock.Start(":8082")
 
-	gw := gateway.New("http://127.0.0.1:8082")
+	luaEngine, err := lua.New("rules/rule.lua")
+	if err != nil {
+		log.Fatalf("[main] failed to initialise lua engineL %v", err)
+	}
+
+	gw := gateway.New("http://127.0.0.1:8082", luaEngine)
 
 	server := &http.Server{
 		Addr:         ":8081",
