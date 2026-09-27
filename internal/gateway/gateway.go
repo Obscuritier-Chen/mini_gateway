@@ -1,33 +1,55 @@
 package gateway
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
 	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"time"
 
 	"mini_gateway/internal/lua"
 )
 
 type Gateway struct {
 	defaultUpstream string
-	luaEngine *lua.Engine
+	upstreamHost    string
+	luaEngine       *lua.Engine
+	proxy           *httputil.ReverseProxy
 }
 
-func New(defaultUpstream string, luaEngine *lua.Engine) *Gateway {
+func New(defaultUpstream string, luaEngine *lua.Engine) (*Gateway, error) {
+	remote, err := url.Parse(defaultUpstream)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse upstream path: %w", err)
+	}
+
+	proxy := httputil.NewSingleHostReverseProxy(remote)
+
 	return &Gateway{
 		defaultUpstream: defaultUpstream,
-		luaEngine: luaEngine,
-	}
+		upstreamHost:    remote.Host,
+		luaEngine:       luaEngine,
+		proxy:           proxy,
+	}, nil
 }
 
 func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	log.Printf("[gateway] request received: %s %s", r.Method, r.URL.Path)
+	reqID := r.Header.Get("X-Request-ID")
+	if reqID == "" {
+		reqID = generateRequestID()
+	}
+	r.Header.Set("X-Request-ID", reqID)
+	w.Header().Set("X-Request-ID", reqID)
 
-	statusCode, msg, err := g.luaEngine.ExecuteRule(r.URL.Path, r.Header.Get("User-Agent"))
+	log.Printf("[gateway][%s] request received: %s %s", reqID, r.Method, r.URL.Path)
+
+	statusCode, msg, err := g.luaEngine.ExecuteRule(r, reqID)
 	if err != nil {
 		log.Printf("[gateway] lua rule executed abnormaly: %v", err)
-		http.Error(w, "Intenal Gateway Error", http.StatusInternalServerError)
+		http.Error(w, "Internal Gateway Error", http.StatusInternalServerError)
 		return
 	}
 
@@ -38,16 +60,14 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	remote, err := url.Parse(g.defaultUpstream)
-	if err != nil {
-		http.Error(w, "Bad Gateway", http.StatusBadGateway)
-		return
-	}
-
-	proxy := httputil.NewSingleHostReverseProxy(remote)
-
 	r.Header.Set("X-Gateway-By", "Mini-Gateway-Go")
-	r.Host = remote.Host
+	r.Host = g.upstreamHost
 
-	proxy.ServeHTTP(w, r)
+	g.proxy.ServeHTTP(w, r)
+}
+
+func generateRequestID() string {
+	bytes := make([]byte, 6)
+	_, _ = rand.Read(bytes)
+	return fmt.Sprintf("%d-%s", time.Now().UnixNano()/1e6, hex.EncodeToString(bytes))
 }

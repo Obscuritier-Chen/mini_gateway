@@ -1,7 +1,8 @@
 package lua
 
-import  (
+import (
 	"fmt"
+	"net/http"
 	"sync"
 
 	"github.com/yuin/gopher-lua"
@@ -34,7 +35,7 @@ func New(scriptPath string) (*Engine, error) {
 	return e, nil
 }
 
-func (e *Engine) ExecuteRule(path, userAgent string) (int, string, error) {
+func (e *Engine) ExecuteRule(r *http.Request, requestID string) (int, string, error) {
 	L := e.pool.Get().(*lua.LState)
 	defer e.pool.Put(L)
 
@@ -43,11 +44,32 @@ func (e *Engine) ExecuteRule(path, userAgent string) (int, string, error) {
 		return 500, "", fmt.Errorf("failed to find lua func check_request")
 	}
 
+	reqTable := L.NewTable()
+	reqTable.RawSetString("method", lua.LString(r.Method))
+	reqTable.RawSetString("path", lua.LString(r.URL.Path))
+	reqTable.RawSetString("request_id", lua.LString(requestID))
+
+	headersTable := L.NewTable()
+	for k, v := range r.Header {
+		if len(v) >0 {
+			headersTable.RawSetString(k, lua.LString(v[0]))
+		}
+	}
+	reqTable.RawSetString("headers", headersTable)
+
+	queryTable := L.NewTable()
+	for k, v := range r.URL.Query() {
+		if len(v) >0 {
+			queryTable.RawSetString(k, lua.LString(v[0]))
+		}
+	}
+	reqTable.RawSetString("query", queryTable)
+
 	err := L.CallByParam(lua.P{
 		Fn: fn,
 		NRet: 2, //两个返回值
 		Protect: true,
-	}, lua.LString(path), lua.LString(userAgent))
+	}, reqTable)
 
 	if err != nil {
 		return 500, "", err

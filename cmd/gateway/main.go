@@ -22,7 +22,10 @@ func main() {
 		log.Fatalf("[main] failed to initialise lua engineL %v", err)
 	}
 
-	gw := gateway.New("http://127.0.0.1:8082", luaEngine)
+	gw, err := gateway.New("http://127.0.0.1:8082", luaEngine)
+	if err != nil {
+		log.Fatalf("[main] failed to initialise gateway %v", err)
+	}
 
 	server := &http.Server{
 		Addr:         ":8081",
